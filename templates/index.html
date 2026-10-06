@@ -1,207 +1,144 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Realtime Voice & Vision Assistant</title>
-    <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; text-align: center; }
-        video { width: 100%; max-width: 400px; background: #222; border-radius: 8px; margin: 20px 0; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; margin: 5px; border-radius: 4px; border: none; background: #007bff; color: white; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
-        #status { margin-top: 10px; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <h1>Realtime Voice & Vision Assistant</h1>
-    <div>
-        <video id="videoPreview" autoplay playsinline muted></video>
-    </div>
-    <div>
-        <button id="startBtn">Start Assistant</button>
-        <button id="stopBtn" disabled>Stop Assistant</button>
-    </div>
-    <div id="status">Disconnected</div>
-
+    <title>Gemini Realtime Voice & Vision</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
     <script>
-        const videoPreview = document.getElementById('videoPreview');
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const statusDiv = document.getElementById('status');
-
-        let ws = null;
-        let stream = null;
-        let audioContext = null;
-        let scriptNode = null;
-        let captureInterval = null;
-        let audioQueue = [];
-        let isPlaying = false;
-        let nextPlayTime = 0;
-
-        async function initMedia() {
-            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            videoPreview.srcObject = stream;
-        }
-
-        function playNextAudio() {
-            if (audioQueue.length === 0 || isPlaying) return;
-            isPlaying = true;
-            
-            const base64Data = audioQueue.shift();
-            
-            // convert base64 to array buffer
-            const binaryString = window.atob(base64Data);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            
-            // output is raw PCM 16-bit 24kHz mono
-            const audioData = new Int16Array(bytes.buffer);
-            const buffer = audioContext.createBuffer(1, audioData.length, 24000);
-            const channelData = buffer.getChannelData(0);
-            
-            for (let i = 0; i < audioData.length; i++) {
-                channelData[i] = audioData[i] / 32768.0;
-            }
-            
-            const source = audioContext.createBufferSource();
-            source.buffer = buffer;
-            source.connect(audioContext.destination);
-            
-            source.onended = () => {
-                isPlaying = false;
-                playNextAudio();
-            };
-            
-            // Ensure gapless playback if possible
-            if (nextPlayTime < audioContext.currentTime) {
-                nextPlayTime = audioContext.currentTime;
-            }
-            source.start(nextPlayTime);
-            nextPlayTime += buffer.duration;
-        }
-
-        async function startAssistant() {
-            if (!stream) await initMedia();
-            
-            // Init audio context for output
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            nextPlayTime = audioContext.currentTime;
-            
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
-            
-            ws.onopen = () => {
-                statusDiv.innerText = "Connected";
-                startBtn.disabled = true;
-                stopBtn.disabled = false;
-                
-                // Start sending audio
-                const source = audioContext.createMediaStreamSource(stream);
-                // Downsample to 16kHz for Gemini
-                scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
-                
-                source.connect(scriptNode);
-                scriptNode.connect(audioContext.destination);
-                
-                scriptNode.onaudioprocess = (e) => {
-                    if (ws.readyState === WebSocket.OPEN) {
-                        const inputData = e.inputBuffer.getChannelData(0);
-                        // Convert float32 to int16
-                        const pcmData = new Int16Array(inputData.length);
-                        for (let i = 0; i < inputData.length; i++) {
-                            pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767;
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gray: {
+                            850: '#1f2937',
+                            900: '#111827',
+                        },
+                        brand: {
+                            500: '#3b82f6',
+                            600: '#2563eb',
                         }
-                        
-                        // NOTE: ScriptProcessorNode runs at audioContext.sampleRate (often 44.1k or 48k).
-                        // In a real production app, you should resample to 16000Hz properly.
-                        // Gemini will resample, but it's best to send exactly 16000Hz.
-                        
-                        const base64Data = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
-                        
-                        ws.send(JSON.stringify({
-                            realtimeInput: {
-                                audio: {
-                                    mimeType: `audio/pcm;rate=${audioContext.sampleRate}`, 
-                                    data: base64Data
-                                }
-                            }
-                        }));
                     }
-                };
-
-                // Start sending video frames (1 fps)
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                
-                captureInterval = setInterval(() => {
-                    if (ws.readyState === WebSocket.OPEN && videoPreview.videoWidth > 0) {
-                        // resize canvas for performance
-                        canvas.width = 640;
-                        canvas.height = 480;
-                        ctx.drawImage(videoPreview, 0, 0, canvas.width, canvas.height);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
-                        const base64Data = dataUrl.split(',')[1];
-                        
-                        ws.send(JSON.stringify({
-                            realtimeInput: {
-                                video: {
-                                    mimeType: "image/jpeg",
-                                    data: base64Data
-                                }
-                            }
-                        }));
-                    }
-                }, 1000); // 1 frame per second
-            };
-            
-            ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                if (msg.type === "audio") {
-                    audioQueue.push(msg.data);
-                    playNextAudio();
-                } else if (msg.type === "interrupted") {
-                    audioQueue = [];
-                    isPlaying = false;
-                    nextPlayTime = audioContext.currentTime;
-                    console.log("Interrupted by Gemini");
                 }
-            };
-            
-            ws.onclose = () => {
-                stopAssistant();
-                statusDiv.innerText = "Disconnected";
-            };
+            }
         }
-
-        function stopAssistant() {
-            if (ws) {
-                ws.close();
-                ws = null;
-            }
-            if (scriptNode) {
-                scriptNode.disconnect();
-                scriptNode = null;
-            }
-            if (captureInterval) {
-                clearInterval(captureInterval);
-                captureInterval = null;
-            }
-            if (audioContext) {
-                audioContext.close();
-                audioContext = null;
-            }
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            statusDiv.innerText = "Disconnected";
-            audioQueue = [];
-            isPlaying = false;
-        }
-
-        startBtn.addEventListener('click', startAssistant);
-        stopBtn.addEventListener('click', stopAssistant);
     </script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans flex flex-col">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 shadow-md p-4">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 bg-brand-500 rounded-lg flex items-center justify-center shadow-lg">
+                    <i class="fas fa-brain text-white text-xl"></i>
+                </div>
+                <h1 class="text-2xl font-bold tracking-tight text-white">Gemini Voice & Vision</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span id="connectionBadge" class="px-3 py-1 rounded-full text-xs font-semibold bg-gray-700 text-gray-300 border border-gray-600 flex items-center shadow-sm">
+                    <span class="w-2 h-2 rounded-full bg-gray-400 mr-2" id="statusDot"></span>
+                    <span id="statusText">Disconnected</span>
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow max-w-6xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        <!-- Left Column: Video & Controls -->
+        <div class="lg:col-span-7 flex flex-col space-y-6">
+            
+            <!-- Video Container -->
+            <div class="relative bg-black rounded-2xl overflow-hidden shadow-2xl border border-gray-700 aspect-video flex items-center justify-center group">
+                <video id="videoPreview" autoplay playsinline muted class="w-full h-full object-cover opacity-90 transition-opacity duration-300 group-hover:opacity-100"></video>
+                
+                <!-- Overlay when inactive -->
+                <div id="videoOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 backdrop-blur-sm z-10 transition-opacity duration-300">
+                    <div class="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mb-4 border border-gray-700 shadow-lg">
+                        <i class="fas fa-video-slash text-gray-400 text-3xl"></i>
+                    </div>
+                    <p class="text-gray-300 font-medium text-lg">Camera off</p>
+                    <p class="text-gray-500 text-sm mt-1">Start the assistant to enable vision</p>
+                </div>
+
+                <!-- Live Indicator -->
+                <div id="liveIndicator" class="absolute top-4 left-4 bg-red-500/90 text-white text-xs font-bold px-2 py-1 rounded flex items-center hidden shadow-md backdrop-blur-sm">
+                    <span class="w-2 h-2 rounded-full bg-white mr-1 animate-pulse"></span>
+                    LIVE
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="bg-gray-800 rounded-xl p-5 border border-gray-700 shadow-lg flex flex-wrap gap-4 items-center justify-between">
+                <div class="flex gap-3">
+                    <button id="startBtn" class="flex items-center gap-2 bg-brand-600 hover:bg-brand-500 text-white px-6 py-2.5 rounded-lg font-medium transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fas fa-play"></i> Start Assistant
+                    </button>
+                    <button id="stopBtn" disabled class="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white px-6 py-2.5 rounded-lg font-medium transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fas fa-stop"></i> Stop
+                    </button>
+                </div>
+                
+                <div class="flex gap-3 border-l border-gray-700 pl-4">
+                    <button id="toggleVideoBtn" disabled class="w-10 h-10 flex items-center justify-center bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Toggle Camera">
+                        <i class="fas fa-video"></i>
+                    </button>
+                    <button id="toggleAudioBtn" disabled class="w-10 h-10 flex items-center justify-center bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Toggle Microphone">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Visualizers & Logs -->
+        <div class="lg:col-span-5 flex flex-col space-y-6">
+            
+            <!-- AI Audio Visualizer -->
+            <div class="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg flex flex-col h-48">
+                <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <i class="fas fa-wave-square text-brand-500"></i> AI Voice Output
+                </h3>
+                <div class="flex-grow flex items-end justify-center gap-1 h-full" id="aiVisualizer">
+                    <!-- Bars will be generated by JS -->
+                </div>
+                <div class="mt-4 text-center">
+                    <span id="aiSpeakingState" class="text-sm text-gray-500">Waiting for response...</span>
+                </div>
+            </div>
+
+            <!-- User Audio Visualizer -->
+            <div class="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg flex flex-col h-48">
+                <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <i class="fas fa-microphone-lines text-green-500"></i> Your Microphone
+                </h3>
+                <canvas id="userVisualizerCanvas" class="w-full h-full rounded-lg bg-gray-900/50"></canvas>
+            </div>
+            
+            <!-- Logs / Events -->
+            <div class="bg-gray-800 rounded-xl p-0 border border-gray-700 shadow-lg flex-grow flex flex-col overflow-hidden max-h-64">
+                <div class="p-4 border-b border-gray-700 bg-gray-800/50">
+                    <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Event Log</h3>
+                </div>
+                <div id="logContainer" class="p-4 overflow-y-auto flex-grow font-mono text-xs space-y-2 text-gray-300">
+                    <div class="text-gray-500 italic">System initialized. Ready to connect.</div>
+                </div>
+            </div>
+            
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-gray-800 bg-gray-900 py-6 mt-auto">
+        <div class="max-w-6xl mx-auto px-6 flex justify-between items-center text-gray-500 text-sm">
+            <p>&copy; 2026 AI Portfolio Project</p>
+            <p>Powered by <span class="text-gray-400 font-semibold">Gemini 3.8 Live API</span> & <span class="text-gray-400 font-semibold">FastAPI</span></p>
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
 </body>
 </html>

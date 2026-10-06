@@ -4,3 +4,4 @@ google-genai
 websockets
 python-dotenv
 jinja2
+pydantic-settings

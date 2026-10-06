@@ -1,0 +1,28 @@
+/* Custom animations that are easier to define in CSS than Tailwind classes */
+.bar {
+    width: 6px;
+    background-color: #3b82f6; /* brand-500 */
+    border-radius: 3px;
+    transition: height 0.1s ease, background-color 0.3s ease;
+    height: 4px;
+}
+
+.bar.active {
+    background-color: #60a5fa; /* brand-400 */
+}
+
+/* Custom scrollbar for log container */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #1f2937; 
+}
+::-webkit-scrollbar-thumb {
+    background: #374151; 
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #4b5563; 
+}

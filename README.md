@@ -1,17 +1,37 @@
 # Realtime Voice & Vision Assistant
 
-A real-time, bidirectional audio and video streaming assistant powered by the Gemini Live API (via the `google-genai` SDK), FastAPI, and WebSockets. Built for low-latency, conversational AI interactions.
+![Gemini Live API](https://img.shields.io/badge/Gemini-Live%20API-blue?style=for-the-badge&logo=google)
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+![TailwindCSS](https://img.shields.io/badge/tailwindcss-%2338B2AC.svg?style=for-the-badge&logo=tailwind-css&logoColor=white)
 
-## Features
-- **Real-time Audio & Video Streaming**: Send camera frames and microphone audio over WebSockets to Gemini.
-- **FastAPI Backend**: Manages WebSocket connections and proxies the Live API connection securely.
-- **Vanilla JS Frontend**: Simple, lightweight, and easy to extend interface for capturing media and playing audio responses.
+A production-ready, real-time, bidirectional audio and video streaming assistant powered by the Gemini Live API (`google-genai` SDK), FastAPI, and WebSockets. Built for low-latency, conversational AI interactions with a sleek, modern interface.
 
-## Prerequisites
-- Python 3.10+
-- A Gemini API Key from Google AI Studio
+## ✨ Features
 
-## Setup Instructions
+- **Real-time Multimodal Interaction**: Send continuous camera frames and microphone audio over WebSockets to Gemini, and receive live audio responses back.
+- **Modern UI/UX**: Built with Tailwind CSS, featuring audio visualizers, connection state management, and real-time logs.
+- **Robust Architecture**: Modular FastAPI backend with dependency injection, connection lifecycle management, and typed configurations using `pydantic-settings`.
+- **Docker Ready**: Easy deployment with `docker-compose`.
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph LR
+    A[Browser / Client] -->|WebSocket <br> Video (Base64 JPEG) <br> Audio (PCM)| B(FastAPI Server)
+    B <-->|google-genai <br> Live API connection| C{Gemini 3.8 Live}
+    C -->|Audio Responses (PCM)| B
+    B -->|WebSocket Audio| A
+```
+
+## 🚀 Quickstart
+
+### Prerequisites
+- Python 3.9+
+- A Gemini API Key from [Google AI Studio](https://aistudio.google.com/)
+
+### 1. Local Development
 
 1. **Clone the repository**:
    ```bash
@@ -19,34 +39,47 @@ A real-time, bidirectional audio and video streaming assistant powered by the Ge
    cd realtime-voice-vision-assistant
    ```
 
-2. **Create and activate a virtual environment**:
+2. **Environment Setup**:
    ```bash
    python3 -m venv venv
-   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-   ```
-
-3. **Install dependencies**:
-   ```bash
+   source venv/bin/activate
    pip install -r requirements.txt
-   ```
-
-4. **Environment Variables**:
-   Copy the example environment file and add your API key.
-   ```bash
+   
    cp .env.example .env
    ```
-   Edit `.env` and set `GEMINI_API_KEY=your_actual_api_key`.
+   Edit `.env` and add your `GEMINI_API_KEY`.
 
-5. **Run the Server**:
+3. **Run the Server**:
    ```bash
    uvicorn main:app --reload
    ```
+   Navigate to `http://localhost:8000` to interact.
 
-6. **Open in Browser**:
-   Navigate to `http://localhost:8000` to interact with the assistant.
+### 2. Docker Deployment
 
-## Architecture
-The application uses FastAPI to serve the frontend template and handle WebSocket connections from the browser. The browser sends base64-encoded audio and video frames. The FastAPI backend securely connects to the Gemini Live API (`gemini-3.8-live` model), forwards the media streams, and routes the AI's audio responses back to the browser for playback.
+If you prefer to run it using Docker:
+```bash
+docker build -t gemini-live-assistant .
+docker run -p 8000:8000 --env-file .env gemini-live-assistant
+```
 
-## License
-MIT
+## 📁 Project Structure
+
+```text
+├── app/
+│   ├── api/
+│   │   └── websockets.py    # WebSocket routing
+│   ├── core/
+│   │   └── config.py        # Pydantic environment configurations
+│   ├── services/
+│   │   └── gemini_service.py # Gemini Live API integration
+│   └── main.py              # FastAPI application factory
+├── static/                  # CSS & JS assets
+├── templates/               # HTML templates
+├── main.py                  # Uvicorn entry point
+├── requirements.txt
+└── Dockerfile
+```
+
+## 📜 License
+MIT License
